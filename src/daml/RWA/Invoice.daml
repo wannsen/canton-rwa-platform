@@ -1,0 +1,107 @@
+-- Copyright (c) 2026 Celing Labs
+-- SPDX-License-Identifier: Apache-2.0
+module RWA.Invoice where
+
+{-|
+  Invoice — Accounts Receivable Tokenization
+
+  An invoice is a claim by a creditor (seller) against a debtor (buyer)
+  for goods or services delivered.
+
+  Factoring Workflow:
+  1. Seller creates Invoice upon goods delivery
+  2. Seller may transfer to a Factor for early payment
+  3. Factor may further transfer to a Secondary Investor
+  4. On maturity, debtor pays the current holder
+  5. Invoice is settled and archived
+ -}
+template Invoice
+  with
+    invoiceNumber : Text
+    debtor : Party
+    creditor : Party
+    amount : Decimal
+    currency : Text
+    issueDate : Date
+    dueDate : Date
+    description : Text
+    reference : Text
+    status : InvoiceStatus
+    previousCreditors : [Party]
+    complianceOfficer : Party
+    regulatoryObserver : Party
+  where
+    signatory creditor
+    observer debtor
+
+    choice TransferToFactor : ContractId Invoice
+      with newFactor : Party
+      controller creditor
+      do create this with
+          creditor = newFactor
+          , previousCreditors = creditor :: previousCreditors
+
+    choice DebtorConfirm : ContractId Invoice
+      controller debtor
+      do create this with status = Confirmed
+
+    choice Settle : ContractId Invoice
+      controller debtor
+      do create this with status = Setled
+
+    choice Dispute : ContractId Invoice
+      with reason : Text
+      controller debtor
+      do create this with status = Disputed
+
+data InvoiceStatus
+  = Issued
+  | Confirmed
+  | Transferred
+  | Disputed
+  | Setled
+  deriving (Eq, Show)
+
+template InvoiceTransferProposal
+  with
+    invoiceCid : ContractId Invoice
+    seller : Party
+    buyer : Party
+    purchasePrice : Decimal
+    currency : Text
+    settlementDate : Date
+  where
+    signatory seller
+    observer buyer
+
+    choice BuyerAccept : ContractId Invoice
+      with paymentRef : Text
+      controller buyer
+      do exercise invoiceCid TransferToFactor with newFactor = buyer
+
+    choice BuyerReject : ()
+      with reason : Text
+      controller buyer
+      do pure ()
+
+    choice SellerCancel : ()
+      controller seller
+      do pure ()
+
+template InvoiceBatch
+  with
+    factor : Party
+    batchId : Text
+    invoices : [(ContractId Invoice, Decimal)]
+    totalAmount : Decimal
+    currency : Text
+    status : BatchStatus
+  where
+    signatory factor
+
+    choice Fund : ContractId InvoiceBatch
+      with paymentRef : Text
+      controller factor
+      do create this with status = Funded
+
+data BatchStatus = Open | Funded | Closed deriving (Eq, Show)
