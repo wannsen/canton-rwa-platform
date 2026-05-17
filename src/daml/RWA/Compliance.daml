@@ -1,0 +1,57 @@
+-- Copyright (c) 2026 Celing Labs
+-- SPDX-License-Identifier: Apache-2.0
+module RWA.Compliance where
+
+{-|
+  KYCVerification — Know Your Customer record
+
+  Canton Network uses identity-based permissioning.
+  KYC status is stored on-ledger; actual documents remain off-ledger.
+ -}
+template KYCVerification
+  with
+    party : Party
+    kycProvider : Party
+    status : KYCStatus
+    verifiedAt : Date
+    expiryDate : Date
+    jurisdiction : [Text]
+    riskLevel : RiskLevel
+    complianceOfficer : Party
+  where
+    signatory kycProvider
+    observer party
+
+    choice Renew : ContractId KYCVerification
+      with newExpiry : Date; newStatus : KYCStatus
+      controller kycProvider
+      do create this with verifiedAt = newExpiry, expiryDate = newExpiry, status = newStatus
+
+    choice Revoke : ContractId KYCVerification
+      with reason : Text
+      controller complianceOfficer
+      do create this with status = Revoked, party, kycProvider, verifiedAt, expiryDate, jurisdiction, riskLevel, complianceOfficer
+
+data KYCStatus = Verified | Pending | Expired | Revoked | Blacklisted deriving (Eq, Show)
+data RiskLevel = LowRisk | MediumRisk | HighRisk deriving (Eq, Show)
+
+{-|
+  JurisdictionRestriction — cross-border transfer rules
+
+  Encodes transfer restrictions by jurisdiction.
+  A transfer is blocked if either party is in a restricted jurisdiction.
+ -}
+template JurisdictionRestriction
+  with
+    assetClass : Text
+    allowedOrigins : [Text]
+    allowedTargets : [Text]
+    restrictedParties : [Party]
+    officer : Party
+  where
+    signatory officer
+
+    choice Update : ContractId JurisdictionRestriction
+      with newOrigins : [Text]; newTargets : [Text]
+      controller officer
+      do create this with allowedOrigins = newOrigins, allowedTargets = newTargets
