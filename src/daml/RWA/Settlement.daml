@@ -1,0 +1,71 @@
+-- Copyright (c) 2026 Celing Labs
+-- SPDX-License-Identifier: Apache-2.0
+module RWA.Settlement where
+
+{-|
+  DvPSettlement — Delivery-versus-Payment Atomic Settlement
+
+  Model:
+  - Seller proposes settlement with asset details
+  - Buyer accepts (both asset + cash move atomically)
+  - Either party can abort before acceptance (no transfer)
+  - Across-domain via Global Synchronizer
+ -}
+template DvPSettlement
+  with
+    seller : Party
+    buyer : Party
+    assetType : Text
+    assetId : Text
+    assetQuantity : Decimal
+    paymentCurrency : Text
+    paymentAmount : Decimal
+    paymentNetwork : Text
+    settlementDate : Date
+    status : SettlementStatus
+    settlementRef : Text
+    requireKYC : Bool
+    complianceParty : Party
+  where
+    signatory seller
+    observer buyer
+    observer complianceParty
+
+    choice Propose : ContractId DvPSettlement
+      controller seller
+      do create this with status = Proposed
+
+    choice BuyerAccept : ContractId DvPSettlement
+      with paymentTxId : Text; custodyTransferRef : Text
+      controller buyer
+      do create this with status = Settled, settlementRef = paymentTxId
+
+    choice Abort : ContractId DvPSettlement
+      with reason : Text
+      controller buyer
+      do create this with status = Aborted, settlementRef = reason
+
+data SettlementStatus = Proposed | Settled | Aborted deriving (Eq, Show)
+
+template BatchSettlement
+  with
+    coordinator : Party
+    batchId : Text
+    settlements : [DvPSettlementKey]
+    totalAssetValue : Decimal
+    totalCashValue : Decimal
+    currency : Text
+    status : BatchStatus
+    regulatoryRef : Text
+  where
+    signatory coordinator
+
+    choice Close : ContractId BatchSettlement
+      controller coordinator
+      do create this with status = BatchClosed
+
+data DvPSettlementKey = DvPKey
+  with seller : Party; buyer : Party; assetId : Text; paymentAmount : Decimal
+  deriving (Show, Eq)
+
+data BatchStatus = BatchOpen | BatchClosed | BatchFailed deriving (Eq, Show)
