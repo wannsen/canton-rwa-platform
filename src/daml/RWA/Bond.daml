@@ -1,0 +1,132 @@
+-- Copyright (c) 2026 Celing Labs
+-- SPDX-License-Identifier: Apache-2.0
+module RWA.Bond where
+
+import Daml.Script
+
+{-|
+  Bond Instrument Template
+  Represents a digital bond on Canton Network. Supports:
+  - Fixed coupon payments on scheduled dates
+  - Face value repayment at maturity
+  - Transfer via DvP atomic settlement
+  - Privacy-preserving bilateral visibility
+ -}
+template Bond
+  with
+    issuer : Party
+    id : Text
+    description : Text
+    currency : Text
+    faceValue : Decimal
+    issueDate : Date
+    maturityDate : Date
+    couponSchedule : [CouponPoint]
+    observers : [Party]
+  where
+    signatory issuer
+    observer observers
+
+data CouponPoint = CouponPoint
+  with
+    couponDate : Date
+    annualRate : Decimal
+    dayCountBasis : Text
+  deriving (Eq, Show)
+
+template BondHolding
+  with
+    bond : ContractId Bond
+    holder : Party
+    units : Decimal
+    lastCouponDate : Date
+  where
+    signatory holder
+    observer (with bnd : ContractId Bond; b : Bond <- fetch bnd; pure (b.issuer))
+
+template PendingCoupon
+  with
+    bond : ContractId Bond
+    couponPoint : CouponPoint
+    holder : Party
+    payoutAmount : Decimal
+    status : Text
+    reason : Text
+  where
+    signatory holder
+    observer (with bnd : ContractId Bond; b : Bond <- fetch bnd; pure (b.issuer))
+
+    choice CouponPayout : ContractId PendingCoupon
+      with paymentTxId : Text
+      controller (with bnd : ContractId Bond; b : Bond <- fetch bnd; pure (b.issuer))
+      do create this with status = "paid", paymentTxId
+
+    choice SkipCoupon : ContractId PendingCoupon
+      with reason : Text
+      controller (with bnd : ContractId Bond; b : Bond <- fetch bnd; pure (b.issuer))
+      do create this with status = "skipped", reason, payoutAmount = 0.0
+
+template BondTransferProposal
+  with
+    bondCid : ContractId Bond
+    seller : Party
+    buyer : Party
+    units : Decimal
+    agreedPrice : Decimal
+    totalConsideration : Decimal
+    settlementDate : Date
+    paymentCurrency : Text
+  where
+    signatory seller
+    observer buyer
+
+    choice BuyerAccept : ContractId BondTransferProposal
+      controller buyer
+      do create this
+
+    choice BuyerReject : ()
+      controller buyer
+      do pure ()
+
+    choice SellerCancel : ()
+      controller seller
+      do pure ()
+
+test_bond : Script ()
+test_bond = do
+  issuer <- allocateParty "Bank"
+  investor <- allocateParty "Investor"
+  regulator <- allocateParty "Regulator"
+
+  bondCid <- submit issuer do
+    createCmd Bond with
+      issuer, id = "XS1234567890", description = "5-Year Fixed Rate Note"
+      , currency = "USD", faceValue = 1000.0
+      , issueDate = date 2025 1 1, maturityDate = date 2030 1 1
+      , couponSchedule =
+          [ CouponPoint (date 2025 7 1) 0.0375 "ACT/360"
+          , CouponPoint (date 2026 1 1) 0.0375 "ACT/360"
+          , CouponPoint (date 2026 7 1) 0.0375 "ACT/360"
+          , CouponPoint (date 2027 1 1) 0.0375 "ACT/360"
+          , CouponPoint (date 2027 7 1) 0.0375 "ACT/360"
+          , CouponPoint (date 2028 1 1) 0.0375 "ACT/360"
+          , CouponPoint (date 2028 7 1) 0.0375 "ACT/360"
+          , CouponPoint (date 2029 1 1) 0.0375 "ACT/360"
+          , CouponPoint (date 2029 7 1) 0.0375 "ACT/360"
+          , CouponPoint (date 2030 1 1) 0.0375 "ACT/360"
+          ]
+      , observers = [regulator]
+
+  _ <- submit issuer do
+    exerciseCmd bondCid BondHolding with holder = investor, units = 10.0, lastCouponDate = date 2025 1 1
+
+  proposalCid <- submit investor do
+    createCmd BondTransferProposal with
+      bondCid, seller = investor, buyer = regulator
+      , units = 5.0, agreedPrice = 1000.0, totalConsideration = 5000.0
+      , settlementDate = date 2025 3 1, paymentCurrency = "USD"
+
+  _ <- submit regulator do
+    exerciseCmd proposalCid BuyerAccept
+
+  pure ()
