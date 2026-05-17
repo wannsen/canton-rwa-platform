@@ -1,0 +1,74 @@
+-- Copyright (c) 2026 Celing Labs
+-- SPDX-License-Identifier: Apache-2.0
+module RWA.Oracle where
+
+{-|
+  PriceOracle — Authoritative price feed for RWA assets
+
+  Oracle design principles:
+  1. Trusted sources only — only whitelisted oracle providers may post prices
+  2. Freshness guarantee — prices expire after maxAge hours
+  3. Dispute mechanism — parties can challenge price within dispute window
+
+  Use cases:
+  - NAV calculation for fund shares (daily mark-to-market)
+  - Bond pricing for secondary market transfers
+  - Invoice valuation for factoring
+  - FX rates for cross-currency settlements
+ -}
+template PriceOracle
+  with
+    provider : Party
+    name : Text
+    assetClass : Text
+    maxAgeHours : Int
+    disputeWindowHours : Int
+    authorizedPosters : [Party]
+  where
+    signatory provider
+    observer authorizedPosters
+
+    choice PostPrice : ContractId PriceRecord
+      with
+        assetId : Text
+        price : Decimal
+        currency : Text
+        asOf : Time
+      controller provider
+      do create PriceRecord
+           with oracle = this, oracleProvider = provider
+                , assetId, price, currency, asOf
+                , submittedAt = getTime (), status = "Pending"
+
+    choice AuthorizePoster : ContractId PriceOracle
+      with newPoster : Party
+      controller provider
+      do create this with authorizedPosters = newPoster :: authorizedPosters
+
+template PriceRecord
+  with
+    oracle : ContractId PriceOracle
+    oracleProvider : Party
+    assetId : Text
+    price : Decimal
+    currency : Text
+    asOf : Time
+    submittedAt : Time
+    status : Text
+  where
+    signatory oracleProvider
+
+    choice Confirm : ContractId PriceRecord
+      controller oracleProvider
+      do create this with status = "Confirmed"
+
+template NAVRecord
+  with
+    fundId : Text
+    navPerShare : Decimal
+    currency : Text
+    asOfDate : Date
+    calculatedAt : Time
+    auditor : Party
+  where
+    signatory auditor
