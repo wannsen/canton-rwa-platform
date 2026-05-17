@@ -1,0 +1,21 @@
+-- Copyright (c) 2026 Celing Labs
+-- SPDX-License-Identifier: Apache-2.0
+module RWA.Main where
+
+{-|
+  Canton RWA Platform — Main Module
+
+  This module serves as the public API surface for the RWA platform.
+  All production contracts should use these exposed interfaces.
+
+  Module Hierarchy:
+
+    RWA.Main
+      ├── RWA.Bond         — Bond tokenization with lifecycle events
+      ├── RWA.Invoice      — Invoice factoring and transfer
+      ├── RWA.Settlement   — Atomic DvP settlement
+      ├── RWA.Compliance   — KYC/AML + jurisdiction rules
+      └── RWA.Oracle       — External price/valuation feeds
+
+  Each module is independently auditable and deployable.
+ -}
